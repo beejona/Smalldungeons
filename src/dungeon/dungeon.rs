@@ -1,4 +1,5 @@
 use crate::dungeon::door::{Door, DoorType};
+use crate::dungeon::generation::{DungeonPlan, LayoutSlot};
 use crate::dungeon::dungeon_state::DungeonState;
 use crate::dungeon::map::DungeonMap;
 use crate::dungeon::room::room::{Room, RoomNeighbour, RoomSegment};
@@ -130,6 +131,10 @@ pub struct Dungeon {
     /// instant a room is entered.
     pub pending_mob_spawn_rooms: Vec<usize>,
 
+    /// The settings this dungeon was built with. Fully random settings are the only ones that
+    /// count for the leaderboard (`counts_for_leaderboard`).
+    pub settings: crate::dungeon::settings::DungeonSettings,
+
     // Boss room data
     // pub boss_room_corner: BlockPos,
     // pub boss_room_width: i32,
@@ -237,6 +242,7 @@ impl Dungeon {
             locked_chests: HashMap::new(),
             lever_to_chests: HashMap::new(),
             pending_mob_spawn_rooms: Vec::new(),
+            settings: Default::default(),
             // boss_room_corner: BlockPos { x: -8, y: 254, z: -8 },
             // boss_room_width: 0, // Will be set when boss room is loaded
             // boss_room_length: 0, // Will be set when boss room is loaded
@@ -245,14 +251,26 @@ impl Dungeon {
     }
 
 
-    pub fn from_str(layout_str: &str, room_data_storage: &DeterministicHashMap<usize, RoomData>) -> anyhow::Result<Dungeon> {
-        let mut rooms: Vec<Room> = Vec::new();
-        let mut doors: Vec<Door> = Vec::new();
+    /// Splits a layout string into its doors and the room slots that need room data: special
+    /// rooms (entrance, fairy, blood, puzzle, trap, yellow) in grid order, then normal rooms
+    /// ordered by their first grid cell. The settings planner (`dungeon::generation`) reads the
+    /// same slots, so a planned pick list lines up with what `from_plan` builds.
+    /// Only fully random dungeons count for the leaderboard.
+    pub fn counts_for_leaderboard(&self) -> bool {
+        self.settings.is_fully_random()
+    }
 
+    pub fn parse_layout(layout_str: &str) -> anyhow::Result<(Vec<Door>, Vec<LayoutSlot>)> {
+        if layout_str.len() < 72 + DOOR_POSITIONS.len() {
+            bail!("Failed to parse dungeon string: too small.");
+        }
+
+        let mut doors: Vec<Door> = Vec::new();
+        let mut slots: Vec<LayoutSlot> = Vec::new();
         let mut room_id_map: DeterministicHashMap<usize, Vec<RoomSegment>> = DeterministicHashMap::default();
 
         for (index, (x, z)) in DOOR_POSITIONS.into_iter().enumerate() {
-            let type_str = layout_str.get(index + 72..index+73).unwrap();
+            let type_str = layout_str.get(index + 72..index+73).unwrap_or("");
 
             let door_type = match type_str {
                 "0" => Some(DoorType::NORMAL),
@@ -283,16 +301,11 @@ impl Dungeon {
         }
 
         for i in 0..36 {
-            let substr = layout_str.get(i*2..i*2+2);
             let x = i % 6;
             let z = i / 6;
-
-            // Shouldn't happen if data is not corrupted
-            if substr.is_none() {
-                panic!("Failed to parse dungeon string: too small.")
-            }
-
-            let id = substr.unwrap().parse::<usize>()?;
+            let id = layout_str.get(i * 2..i * 2 + 2)
+                .ok_or_else(|| anyhow::anyhow!("Failed to parse dungeon string: bad room cell {i}"))?
+                .parse::<usize>()?;
 
             // No room here
             if id == 0 {
@@ -318,44 +331,58 @@ impl Dungeon {
                     _ => RoomShape::OneByOneEnd,
                 };
 
-                let mut room_data = get_random_data_with_type(
+                slots.push(LayoutSlot {
                     room_type,
                     shape,
-                    room_data_storage,
-                    &rooms
-                );
-
-                room_data.room_type = room_type;
-
-                rooms.push(Room::new(
-                    vec![RoomSegment { x, z, neighbours: [const { None }; 4] }],
-                    &doors,
-                    room_data
-                ));
-
+                    segments: vec![RoomSegment { x, z, neighbours: [const { None }; 4] }],
+                });
                 continue
             }
 
             // Normal rooms, add segments to this specific room id
-            let entry = room_id_map.entry(id).or_default();
-            entry.push(RoomSegment { x, z, neighbours: [const { None }; 4] });
+            room_id_map.entry(id).or_default().push(RoomSegment { x, z, neighbours: [const { None }; 4] });
         }
 
-        // Make the normal rooms
-        rooms.reserve(room_id_map.len());
-        for (_, segments) in room_id_map {
+        // Segments are pushed in grid order, so each room's first segment is its first cell.
+        let mut normal_rooms: Vec<Vec<RoomSegment>> = room_id_map.into_values().collect();
+        normal_rooms.sort_by_key(|segments| segments[0].z * 6 + segments[0].x);
+        for segments in normal_rooms {
             let shape = RoomShape::from_segments(&segments, &doors);
+            slots.push(LayoutSlot { room_type: RoomType::Normal, shape, segments });
+        }
 
-            rooms.push(Room::new(
-                segments,
-                &doors,
-                get_random_data_with_type(
-                    RoomType::Normal,
-                    shape,
-                    room_data_storage,
-                    &rooms
-                )
-            ));
+        Ok((doors, slots))
+    }
+
+    /// Builds a dungeon from a layout string, picking each room at random (the seeded RNG).
+    pub fn from_str(layout_str: &str, room_data_storage: &DeterministicHashMap<usize, RoomData>) -> anyhow::Result<Dungeon> {
+        let (doors, slots) = Self::parse_layout(layout_str)?;
+        let mut rooms: Vec<Room> = Vec::with_capacity(slots.len());
+
+        for slot in slots {
+            let mut room_data = get_random_data_with_type(slot.room_type, slot.shape, room_data_storage, &rooms);
+            room_data.room_type = slot.room_type;
+            rooms.push(Room::new(slot.segments, &doors, room_data));
+        }
+
+        Self::from_layout(doors, rooms)
+    }
+
+    /// Builds a dungeon from a plan made by `dungeon::generation::plan_dungeon`: the same layout
+    /// slots, but with the room data the planner chose for each one.
+    pub fn from_plan(plan: &DungeonPlan, room_data_storage: &DeterministicHashMap<usize, RoomData>) -> anyhow::Result<Dungeon> {
+        let (doors, slots) = Self::parse_layout(&plan.layout)?;
+        if slots.len() != plan.picks.len() {
+            bail!("Dungeon plan has {} picks for {} rooms", plan.picks.len(), slots.len());
+        }
+        let mut rooms: Vec<Room> = Vec::with_capacity(slots.len());
+
+        for (slot, pick) in slots.into_iter().zip(&plan.picks) {
+            let mut room_data = room_data_storage.get(pick)
+                .ok_or_else(|| anyhow::anyhow!("Dungeon plan picks unknown room {pick}"))?
+                .clone();
+            room_data.room_type = slot.room_type;
+            rooms.push(Room::new(slot.segments, &doors, room_data));
         }
 
         Self::from_layout(doors, rooms)
