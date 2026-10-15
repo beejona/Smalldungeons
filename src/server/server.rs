@@ -52,6 +52,8 @@ pub struct Server {
     pub dungeon_settings: crate::dungeon::settings::DungeonSettings,
     /// Whether players must run the Rustclear mod. On unless `RUSTCLEAR_REQUIRE_MOD=0`.
     pub require_mod: bool,
+    /// Secret totals of fully random dungeons, sent to the mod (`generation::secret_distribution`).
+    pub secret_histogram: Vec<f32>,
 }
 impl Server {
     pub fn initialize_with_dungeon(
@@ -60,6 +62,11 @@ impl Server {
         room_data_storage: DeterministicHashMap<usize, RoomData>,
         door_type_blocks: HashMap<DoorType, Vec<Vec<Blocks>>>,
     ) -> Server {
+        let layouts: Vec<&str> = include_str!("../dungeon_storage/dungeons.txt")
+            .split('\n')
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        let secret_histogram = crate::dungeon::generation::secret_distribution(&layouts, &room_data_storage);
         Server {
             network_tx,
             world: World::new(),
@@ -69,6 +76,7 @@ impl Server {
             door_type_blocks,
             practice_mode: false,
             dungeon_settings: Default::default(),
+            secret_histogram,
             require_mod: !matches!(std::env::var("RUSTCLEAR_REQUIRE_MOD").as_deref(), Ok("0") | Ok("false") | Ok("no")),
         }
     }

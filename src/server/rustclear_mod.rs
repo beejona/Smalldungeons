@@ -27,7 +27,7 @@ pub fn send_hello(server: &Server, player: &mut Player) {
     // 1.8's REGISTER lists channels separated by NUL; ViaProxy turns it into minecraft:register.
     player.write_packet(&CustomPayload { channel: "REGISTER".into(), data: SETTINGS_CHANNEL.as_bytes() });
 
-    let catalog = Catalog::build(&server.room_data_storage, server.require_mod, &server.dungeon_settings);
+    let catalog = Catalog::build(&server.room_data_storage, server.require_mod, &server.dungeon_settings, &server.secret_histogram);
     match serde_json::to_string(&catalog) {
         Ok(json) => write_json(player, HELLO_CHANNEL, &json),
         Err(e) => eprintln!("rustclear hello: {e}"),
