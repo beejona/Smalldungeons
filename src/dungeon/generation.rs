@@ -388,6 +388,29 @@ pub fn plan_dungeon(
     Err(failure)
 }
 
+/// How often each secret total comes up in fully random dungeons, scaled so the most common
+/// total is 1.0 (index = total secrets). Exact for the planner's model: every layout weighted
+/// equally, every room assignment within a layout equally likely.
+pub fn secret_distribution(layouts: &[&str], storage: &DeterministicHashMap<usize, RoomData>) -> Vec<f32> {
+    let settings = DungeonSettings::default();
+    let mut sum = vec![0.0f64; MAX_SECRETS];
+    for layout in layouts {
+        let Ok((_, slots)) = Dungeon::parse_layout(layout.trim()) else { continue };
+        let Ok(groups) = build_groups(&slots, storage, &settings) else { continue };
+        let tables = build_tables(&groups, &Assignment { forced: BTreeMap::new() });
+        let totals = tables.totals.last().unwrap();
+        let weight: f64 = totals.iter().sum();
+        if weight > 0.0 {
+            for (s, w) in totals.iter().enumerate() {
+                sum[s] += w / weight;
+            }
+        }
+    }
+    let last = sum.iter().rposition(|&w| w > 0.0).map_or(0, |i| i + 1);
+    let peak = sum.iter().cloned().fold(0.0, f64::max);
+    sum[..last].iter().map(|&w| if peak > 0.0 { (w / peak) as f32 } else { 0.0 }).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,6 +491,16 @@ mod tests {
                 .unwrap_or_else(|f| panic!("{}", f.message(&settings)));
             check(&plan, &storage, &settings);
         }
+    }
+
+    #[test]
+    fn distribution_matches_random_dungeons() {
+        let storage = load_room_data_storage();
+        let histogram = secret_distribution(&layouts(), &storage);
+        println!("secret histogram: {:?}", histogram.iter().map(|w| (w * 100.0).round() as u32).collect::<Vec<_>>());
+        let peak = histogram.iter().cloned().enumerate().max_by(|a, b| a.1.total_cmp(&b.1)).unwrap().0;
+        // Random dungeons built through `Dungeon::from_str` peak in the low 50s.
+        assert!((45..=60).contains(&peak), "peak at {peak}");
     }
 
     #[test]

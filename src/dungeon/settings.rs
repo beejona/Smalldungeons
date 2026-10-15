@@ -120,10 +120,13 @@ pub struct Catalog {
     pub rooms: Vec<CatalogRoom>,
     pub puzzles: Vec<CatalogRoom>,
     pub current: DungeonSettings,
+    /// How common each secret total is in fully random dungeons (index = secrets, peak = 1.0),
+    /// for the range slider's backdrop.
+    pub secret_histogram: Vec<f32>,
 }
 
 impl Catalog {
-    pub fn build(storage: &DeterministicHashMap<usize, RoomData>, required: bool, current: &DungeonSettings) -> Catalog {
+    pub fn build(storage: &DeterministicHashMap<usize, RoomData>, required: bool, current: &DungeonSettings, secret_histogram: &[f32]) -> Catalog {
         let mut rooms: BTreeMap<String, CatalogRoom> = BTreeMap::new();
         let mut puzzles: BTreeMap<String, CatalogRoom> = BTreeMap::new();
         for data in storage.values() {
@@ -150,6 +153,7 @@ impl Catalog {
             rooms: rooms.into_values().collect(),
             puzzles: puzzles.into_values().collect(),
             current: current.clone(),
+            secret_histogram: secret_histogram.to_vec(),
         }
     }
 }
