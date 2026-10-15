@@ -183,6 +183,10 @@ pub fn build_dungeon(server: &Server) -> anyhow::Result<Dungeon> {
         println!("Dungeon String: {}\nRng Seed: {rng_seed}\nSettings: {} ({} secrets)", plan.layout, settings.describe(), plan.total_secrets);
         Dungeon::from_plan(&plan, &server.room_data_storage)?
     };
+    if !settings.is_fully_random() {
+        let names: Vec<&str> = dungeon.rooms.iter().map(|r| r.room_data.name.as_str()).collect();
+        println!("Rooms: {}", names.join(", "));
+    }
     dungeon.settings = settings;
     Ok(dungeon)
 }

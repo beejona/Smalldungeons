@@ -112,24 +112,61 @@ if run(with_mod(1), 15) != 'status': fail('no status after join')
 if run(with_mod(99), 12) == 'kicked': fail('client with the mod was kicked')
 print('ok: client with the mod stays; ranked=%s' % statuses[0]['ranked'])
 
-puzzles = ['Boulder', 'Creeper Beams', 'Ice Fill', 'Three Weirdos', 'Water Board']
-settings('generate', {'rooms': ['Old Trap'], 'puzzles': puzzles, 'secrets': [30, 35]})
-n = len(statuses)
-if run(with_mod(n + 1), 60) != 'status': fail('no status after generate')
-s = statuses[-1]
-if not s['ok'] or s['ranked'] or not 30 <= s['total_secrets'] <= 35: fail('bad generate status %r' % s)
-print('ok: generated custom dungeon: %s' % s['message'])
+def generate(s, seconds=60):
+    settings('generate', s)
+    n = len(statuses)
+    if run(with_mod(n + 1), seconds) != 'status': fail('no status after generate %r' % s)
+    return statuses[-1]
 
-settings('generate', {'puzzles': ['Boulder']})
-n = len(statuses)
-if run(with_mod(n + 1), 30) != 'status': fail('no status after impossible generate')
-s = statuses[-1]
-if s['ok']: fail('impossible settings were accepted')
-print('ok: impossible settings refused: %s' % s['message'])
+# Custom settings: every status must be ok, unranked, and inside the secret range. The server log
+# ("Rooms:" lines) shows the rooms each one placed; check it with LOG=path to the server output.
+LOG = sys.argv[2] if len(sys.argv) > 2 else None
+names = [r['name'] for r in hello['rooms']]
+all_puzzles = [p['name'] for p in hello['puzzles']]
+cases = [
+    {'rooms': ['Old Trap'], 'puzzles': ['Boulder', 'Creeper Beams', 'Ice Fill', 'Three Weirdos', 'Water Board'], 'secrets': [30, 35]},
+    {'rooms': ['Old Trap']},
+    {'rooms': [n for n in names if n in ('Withermancer', 'Mural', 'Museum', 'Purple Flags')]},
+    {'puzzles': all_puzzles[:2]},
+    {'puzzles': all_puzzles[-5:]},
+    {'secrets': [38, 40]},
+    {'secrets': [66, 70]},
+    {'secrets': [53, 53]},
+]
+for case in cases:
+    s = generate(case)
+    lo, hi = case.get('secrets', [0, 9999])
+    if not s['ok'] or s['ranked'] or not lo <= s['total_secrets'] <= hi: fail('bad status for %r: %r' % (case, s))
+    print('ok: %s -> %s' % (json.dumps(case), s['message']))
 
-settings('generate', {})
-n = len(statuses)
-if run(with_mod(n + 1), 60) != 'status': fail('no status after random generate')
-if not statuses[-1]['ranked']: fail('fully random dungeon not ranked')
+for case in [{'puzzles': ['Boulder']}, {'secrets': [0, 5]}, {'secrets': [200, 300]}, {'rooms': ['No Such Room']}]:
+    s = generate(case, 30)
+    if s['ok']: fail('impossible settings were accepted: %r' % case)
+    print('ok: refused %s: %s' % (json.dumps(case), s['message']))
+
+s = generate({})
+if not s['ok'] or not s['ranked']: fail('fully random dungeon not ranked: %r' % s)
 print('ok: fully random dungeon is ranked')
+
+# Apply only stores the settings; they're used by the next generate.
+settings('apply', {'rooms': ['Old Trap']})
+n = len(statuses)
+if run(with_mod(n + 1), 15) != 'status': fail('no status after apply')
+if statuses[-1]['ranked'] is not True: fail('apply rebuilt the dungeon')
+print('ok: apply stored settings: %s' % statuses[-1]['message'])
+generate({})
+
+if LOG:
+    time.sleep(1)
+    blocks = open(LOG).read().split('Dungeon String:')[1:]
+    custom = [b for b in blocks if 'Settings:' in b]
+    if len(custom) != len(cases): fail('expected %d custom dungeons in the log, found %d' % (len(cases), len(custom)))
+    for case, block in zip(cases, custom):
+        rooms = [r.strip() for r in block.split('Rooms:')[1].split('\n')[0].split(',')]
+        for want in case.get('rooms', []):
+            if want not in rooms: fail('%s missing from %r' % (want, rooms))
+        if 'puzzles' in case:
+            for r in rooms:
+                if r in all_puzzles and r not in case['puzzles']: fail('puzzle %s not allowed in %r' % (r, case))
+    print('ok: server log shows guaranteed rooms placed and only enabled puzzles')
 print('PASS')
