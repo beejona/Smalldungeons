@@ -2,3 +2,6 @@ target/
 src/room_data/
 src/room_data
 /.idea
+launcher/proxy/
+launcher/java/
+launcher/*.log
