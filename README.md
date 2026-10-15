@@ -31,6 +31,8 @@ To make the prebuilt zip, run the **Windows bundle** workflow from the Actions t
 
 Players need the Rustclear mod (a separate Fabric mod) to stay on the server: on join the server sends a hello on `rustclear:hello`, and a client that doesn't answer on `rustclear:settings` within 10 s is kicked. Set `RUSTCLEAR_REQUIRE_MOD=0` to let plain clients in (needed for `tools/smoke_26.py` and `tools/breaker_test_18.py`).
 
+The Windows installer sets up the server and proxy but not the mod, so players also need the mod jar in `.minecraft/mods` with Fabric Loader and Fabric API for 26.1.2. To play without it, set `RUSTCLEAR_REQUIRE_MOD=0` before starting the server.
+
 The mod chooses settings for the next dungeon: rooms that must spawn, the puzzles that may spawn, and a range for the total secrets. Leaving all three on random gives a normal run, and only those count for the leaderboard (`Dungeon::counts_for_leaderboard`). `src/dungeon/settings.rs` has the message formats and `src/dungeon/generation.rs` the planner that picks a recorded layout and its rooms to meet the settings, or explains why none can.
 
 `python3 tools/settings_test_18.py` checks the handshake against a running server: the kick without the mod, a custom dungeon, refused settings, and a ranked random dungeon.
