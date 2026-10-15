@@ -388,6 +388,19 @@ pub fn plan_dungeon(
     Err(failure)
 }
 
+/// The layouts whose every room slot has a distinct room to fill it. 65 recorded layouts have
+/// normal dead-end rooms, a shape no normal room has, so a random fill would put placeholder
+/// stone rooms there; fully random runs pick from this list instead.
+pub fn fillable_layouts<'a>(layouts: &[&'a str], storage: &DeterministicHashMap<usize, RoomData>) -> Vec<&'a str> {
+    let settings = DungeonSettings::default();
+    layouts.iter()
+        .map(|layout| layout.trim())
+        .filter(|layout| {
+            Dungeon::parse_layout(layout).is_ok_and(|(_, slots)| build_groups(&slots, storage, &settings).is_ok())
+        })
+        .collect()
+}
+
 /// How often each secret total comes up in fully random dungeons, scaled so the most common
 /// total is 1.0 (index = total secrets). Exact for the planner's model: every layout weighted
 /// equally, every room assignment within a layout equally likely.
@@ -519,5 +532,303 @@ mod tests {
         let unknown = DungeonSettings { guaranteed_rooms: vec!["Not A Room".into()], puzzles: None, secrets: None };
         let err = plan_dungeon(&layouts, &storage, &unknown, &mut seeded_rng()).unwrap_err();
         assert!(err.message(&unknown).contains("Not A Room"), "{}", err.message(&unknown));
+    }
+
+    /// Looks for "irregular" dungeons either generation path could build: rooms that fall back
+    /// to the stone placeholder (empty `block_data`), rooms whose openings don't line up with the
+    /// layout's doors after `Room::new` rotates them, and layouts where a (type, shape) group has
+    /// more slots than candidates (random path deals `RoomData::dummy()`, planner skips the
+    /// layout; fully random runs avoid those through `fillable_layouts`). Slow, so it's ignored
+    /// by default:
+    /// `cargo test --release irregular_dungeon_maps -- --ignored --nocapture --test-threads=1`
+    /// `IRREGULAR_DUMP=<room name>` also prints that room's per-side wall profiles.
+    #[test]
+    #[ignore]
+    fn irregular_dungeon_maps() {
+        use crate::dungeon::door::Door;
+        use crate::dungeon::dungeon::DUNGEON_ORIGIN;
+        use crate::dungeon::room::room::Room;
+        use crate::server::block::block_collision::is_block_passable;
+        use crate::server::block::block_position::BlockPos;
+        use crate::server::block::blocks::Blocks;
+        use std::collections::{BTreeSet, HashSet};
+
+        const SIDES: [&str; 4] = ["N", "E", "S", "W"];
+        // Outward step for each side, matching `get_1x1_shape_and_type`'s door order.
+        const OUT: [(i32, i32); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+        // `Door::load_into_world` clears 3 blocks into each room (door.x +- 3 along its axis), so
+        // the room's own blocks only matter from depth 4 (depth 1 = the room's edge row).
+        const FIRST_UNCLEARED: i32 = 4;
+        // A door is fine when the walk from it reaches at least this many columns past the door's
+        // cleared area. A door into a wall or a pocket reaches under ~15; the tightest real rooms
+        // (Three Weirdos' corridor, Teleport Maze's first pad, Water's sunken pit) reach 34-62.
+        const FLOOD_CAP: usize = 24;
+
+        let storage = load_room_data_storage();
+        let layouts = layouts();
+        let dump = std::env::var("IRREGULAR_DUMP").ok();
+
+        // Block at a world position as `load_into_world` would place it (None = outside the
+        // room's captured box, which the world leaves as air). Like the placement loop, the
+        // vertical extent comes from `block_data.len()`, not `height` (often 0 in the files).
+        fn block_at(room: &Room, x: i32, y: i32, z: i32) -> Option<Blocks> {
+            let data = &room.room_data;
+            let local = room.get_local_block_pos(&BlockPos { x, y, z });
+            let ly = y - data.bottom;
+            if local.x < 0 || local.x >= data.width || local.z < 0 || local.z >= data.length || ly < 0 {
+                return None;
+            }
+            let index = (ly * data.width * data.length + local.z * data.width + local.x) as usize;
+            data.block_data.get(index).copied()
+        }
+        fn passable(room: &Room, x: i32, y: i32, z: i32) -> bool {
+            block_at(room, x, y, z).map_or(true, is_block_passable)
+        }
+        // Can a player stand in this column at depth `d` (feet at 69, or at 70 for a step up)?
+        fn walkable(room: &Room, x: i32, z: i32) -> bool {
+            (passable(room, x, 69, z) && passable(room, x, 70, z))
+                || (passable(room, x, 70, z) && passable(room, x, 71, z))
+        }
+        // Per-depth count (0..=3) of walkable columns across the 3-wide door opening.
+        fn profile(room: &Room, door: (i32, i32), side: usize, depths: i32) -> Vec<u8> {
+            let (ox, oz) = OUT[side];
+            let (lx, lz) = (oz.abs(), ox.abs());
+            (1..=depths).map(|d| {
+                (-1..=1).filter(|l| walkable(room, door.0 - d * ox + l * lx, door.1 - d * oz + l * lz)).count() as u8
+            }).collect()
+        }
+        // Walks from a door into the room the way a player could: stand where there's a solid
+        // block under the feet and two passable blocks above, step up at most 1, drop at most 3.
+        // The world is the room's own blocks plus what every door of this room overwrites
+        // (`Door::load_into_world`: air y69..73 over door +-3 along its axis and +-2 across,
+        // bedrock y66..67, a stone floor line at y68 across the gap). Returns how many columns
+        // past the doors' cleared areas the walk reaches, capped at `FLOOD_CAP` - a door into a
+        // wall or a small pocket reaches only a handful.
+        fn flood(room: &Room, doors: &[((i32, i32), usize)], start: usize) -> usize {
+            let cleared = |x: i32, z: i32| -> Option<(i32, i32, usize)> {
+                doors.iter().find_map(|&((dx, dz), side)| {
+                    let (ox, _) = OUT[side];
+                    let (ax, az) = if ox != 0 { (3, 2) } else { (2, 3) };
+                    ((x - dx).abs() <= ax && (z - dz).abs() <= az).then_some((dx, dz, side))
+                })
+            };
+            let solid_at = |x: i32, y: i32, z: i32| -> bool {
+                if let Some((dx, dz, side)) = cleared(x, z) {
+                    if (69..=73).contains(&y) { return false; }
+                    if (66..=67).contains(&y) { return true; }
+                    let on_gap_line = if OUT[side].0 != 0 { x == dx } else { z == dz };
+                    if y == 68 && on_gap_line { return true; }
+                }
+                !passable(room, x, y, z)
+            };
+            let stand = |x: i32, f: i32, z: i32| solid_at(x, f - 1, z) && !solid_at(x, f, z) && !solid_at(x, f + 1, z);
+            let (min, max) = room.get_world_bounds();
+            let inside = |x: i32, z: i32| (x >= min.x && x <= max.x && z >= min.z && z <= max.z) || cleared(x, z).is_some();
+
+            let ((sx, sz), _) = doors[start];
+            let mut seen: HashSet<(i32, i32, i32)> = HashSet::new();
+            let mut columns: HashSet<(i32, i32)> = HashSet::new();
+            let mut queue = std::collections::VecDeque::new();
+            seen.insert((sx, 69, sz));
+            queue.push_back((sx, 69, sz));
+            while let Some((x, f, z)) = queue.pop_front() {
+                for (dx, dz) in OUT {
+                    let (nx, nz) = (x + dx, z + dz);
+                    if !inside(nx, nz) {
+                        continue;
+                    }
+                    // Step up 1 (needs headroom where we are), walk level, or drop up to 3.
+                    let mut options = Vec::new();
+                    if !solid_at(x, f + 2, z) && stand(nx, f + 1, nz) {
+                        options.push(f + 1);
+                    }
+                    if !solid_at(nx, f, nz) && !solid_at(nx, f + 1, nz) {
+                        if let Some(landing) = (f - 3..=f).rev().find(|&g| solid_at(nx, g - 1, nz)) {
+                            if (landing..=f + 1).all(|y| !solid_at(nx, y, nz)) {
+                                options.push(landing);
+                            }
+                        }
+                    }
+                    for nf in options {
+                        if seen.insert((nx, nf, nz)) {
+                            if cleared(nx, nz).is_none() {
+                                columns.insert((nx, nz));
+                                if columns.len() >= FLOOD_CAP {
+                                    return columns.len();
+                                }
+                            }
+                            queue.push_back((nx, nf, nz));
+                        }
+                    }
+                }
+            }
+            columns.len()
+        }
+
+        #[derive(Default)]
+        struct Failure { count: usize, example: String }
+        let mut door_failures: BTreeMap<(String, String, String, String), Failure> = BTreeMap::new();
+        let mut wall_doors: BTreeMap<(String, String, String, String), Failure> = BTreeMap::new();
+        let mut hole_failures: BTreeMap<(String, String, String, String), Failure> = BTreeMap::new();
+        let mut empty_rooms: BTreeMap<(String, String), Failure> = BTreeMap::new();
+        let mut short_groups: BTreeMap<(String, usize, usize, usize), Failure> = BTreeMap::new();
+        let mut short_layouts: HashSet<&str> = HashSet::new();
+        let mut seen: HashSet<(usize, Vec<(usize, usize)>, BTreeSet<(usize, usize, usize)>)> = HashSet::new();
+        let mut combos = 0usize;
+        let mut slots_checked = 0usize;
+
+        for layout in &layouts {
+            let layout = layout.trim();
+            let Ok((doors, slots)) = Dungeon::parse_layout(layout) else { continue };
+
+            // 3. Slots per (type, shape) vs what each path can fill them with.
+            let mut groups: BTreeMap<String, (RoomType, RoomShape, usize)> = BTreeMap::new();
+            for slot in &slots {
+                groups.entry(group_key(slot.room_type, &slot.shape)).or_insert((slot.room_type, slot.shape.clone(), 0)).2 += 1;
+            }
+            for (key, (room_type, shape, count)) in &groups {
+                let entries: Vec<&RoomData> = storage.values().filter(|d| d.room_type == *room_type && d.shape == *shape).collect();
+                let names: HashSet<&str> = entries.iter().map(|d| d.name.as_str()).collect();
+                // Random path dedupes exact data, plus names for puzzles.
+                let random_capacity = if *room_type == RoomType::Puzzle { names.len() } else { entries.len() };
+                if *count > names.len() || *count > random_capacity {
+                    short_layouts.insert(layout);
+                    let f = short_groups.entry((key.clone(), *count, names.len(), random_capacity)).or_default();
+                    f.count += 1;
+                    if f.example.is_empty() { f.example = layout.to_string(); }
+                }
+            }
+
+            for slot in &slots {
+                slots_checked += 1;
+                let min_x = slot.segments.iter().map(|s| s.x).min().unwrap();
+                let min_z = slot.segments.iter().map(|s| s.z).min().unwrap();
+                let cells: HashSet<(usize, usize)> = slot.segments.iter().map(|s| (s.x, s.z)).collect();
+                let mut pattern: Vec<(usize, usize)> = cells.iter().map(|(x, z)| (x - min_x, z - min_z)).collect();
+                pattern.sort();
+
+                // Every outside edge of the room: (segment, side, door position, has door).
+                let mut edges = Vec::new();
+                for seg in &slot.segments {
+                    let cx = seg.x as i32 * 32 + 15 + DUNGEON_ORIGIN.0;
+                    let cz = seg.z as i32 * 32 + 15 + DUNGEON_ORIGIN.1;
+                    for side in 0..4 {
+                        let (ox, oz) = OUT[side];
+                        let (nx, nz) = (seg.x as i32 + ox, seg.z as i32 + oz);
+                        if nx >= 0 && nz >= 0 && cells.contains(&(nx as usize, nz as usize)) {
+                            continue;
+                        }
+                        let pos = (cx + ox * 16, cz + oz * 16);
+                        let has_door = doors.iter().any(|d: &Door| d.x == pos.0 && d.z == pos.1);
+                        edges.push((seg.x - min_x, seg.z - min_z, side, pos, has_door));
+                    }
+                }
+                let door_set: BTreeSet<(usize, usize, usize)> = edges.iter().filter(|e| e.4).map(|e| (e.0, e.1, e.2)).collect();
+
+                let mut keys: Vec<usize> = storage.iter()
+                    .filter(|(_, d)| d.room_type == slot.room_type && d.shape == slot.shape)
+                    .map(|(k, _)| *k)
+                    .collect();
+                keys.sort();
+
+                for key in keys {
+                    if !seen.insert((key, pattern.clone(), door_set.clone())) {
+                        continue;
+                    }
+                    combos += 1;
+                    let data = storage[&key].clone();
+                    let shape = format!("{:?}", data.shape);
+
+                    // 1. Placeholder stone room.
+                    if data.block_data.is_empty() {
+                        let f = empty_rooms.entry((data.name.clone(), shape.clone())).or_default();
+                        f.count += 1;
+                        if f.example.is_empty() { f.example = layout.to_string(); }
+                        continue;
+                    }
+
+                    let segments = slot.segments.iter()
+                        .map(|s| crate::dungeon::room::room::RoomSegment { x: s.x, z: s.z, neighbours: [const { None }; 4] })
+                        .collect();
+                    let room = Room::new(segments, &doors, data);
+                    let rotation = format!("{:?}", room.rotation);
+                    let name = room.room_data.name.clone();
+
+                    // 2. Door alignment, plus holes where there is no door.
+                    let room_doors: Vec<((i32, i32), usize)> = edges.iter().filter(|e| e.4).map(|e| (e.3, e.2)).collect();
+                    // Many rooms (every multi-cell room, Fairy) are captured fully walled and rely
+                    // on the doors to clear their way in; only rooms captured with door gaps in
+                    // their walls can tell a wrong rotation from a closed edge.
+                    let has_gaps = edges.iter().any(|e| profile(&room, e.3, e.2, 1)[0] > 0);
+                    for &(sx, sz, side, pos, has_door) in &edges {
+                        let prof = profile(&room, pos, side, 8);
+                        let reach = match room_doors.iter().position(|d| d.0 == pos) {
+                            Some(index) => flood(&room, &room_doors, index),
+                            None => 0,
+                        };
+                        if dump.as_deref() == Some(name.as_str()) {
+                            println!("{name} rot={rotation} seg=({sx},{sz}) side={} door={has_door} profile={:?} reach={reach}", SIDES[side], prof);
+                        }
+                        let side_label = format!("{} of cell ({sx},{sz})", SIDES[side]);
+                        if has_door {
+                            // The room has to open up behind the door, not just have a pocket.
+                            if reach < FLOOD_CAP {
+                                let f = door_failures.entry((name.clone(), shape.clone(), rotation.clone(), side_label.clone())).or_default();
+                                f.count += 1;
+                                if f.example.is_empty() { f.example = layout.to_string(); }
+                            }
+                            // The room's own edge row is closed where the door is: the door only
+                            // gets through by clearing the wall (often a sign of a wrong rotation).
+                            if has_gaps && prof[0] == 0 {
+                                let f = wall_doors.entry((name.clone(), shape.clone(), rotation.clone(), side_label)).or_default();
+                                f.count += 1;
+                                if f.example.is_empty() { f.example = layout.to_string(); }
+                            }
+                        } else if prof.iter().take(FIRST_UNCLEARED as usize + 1).all(|&n| n == 3) {
+                            // Fully open 3-wide, 2-tall passage from the edge inwards with no door:
+                            // a hole into the gap/void.
+                            let f = hole_failures.entry((name.clone(), shape.clone(), rotation.clone(), side_label)).or_default();
+                            f.count += 1;
+                            if f.example.is_empty() { f.example = layout.to_string(); }
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("\n=== irregular dungeon check ===");
+        println!("layouts: {}, slots: {slots_checked}, unique (room, segment pattern, door sides) combos checked: {combos}", layouts.len());
+
+        println!("\n-- 1. empty block_data (placeholder stone room): {}", empty_rooms.len());
+        for ((name, shape), f) in &empty_rooms {
+            println!("  {name:?} {shape} x{} e.g. {}", f.count, f.example);
+        }
+
+        println!("\n-- 2a. door that leads nowhere (walk from it reaches < {FLOOD_CAP} columns): {}", door_failures.len());
+        for ((name, shape, rotation, side), f) in &door_failures {
+            println!("  {name:?} {shape} rot={rotation} door {side} x{} e.g. {}", f.count, f.example);
+        }
+
+        println!("\n-- 2b. door whose room edge is a wall (door clears through it; rooms captured with door gaps only): {}", wall_doors.len());
+        for ((name, shape, rotation, side), f) in &wall_doors {
+            println!("  {name:?} {shape} rot={rotation} door {side} x{} e.g. {}", f.count, f.example);
+        }
+
+        println!("\n-- 2c. open wall with no door (hole into the gap): {}", hole_failures.len());
+        for ((name, shape, rotation, side), f) in &hole_failures {
+            println!("  {name:?} {shape} rot={rotation} {side} x{} e.g. {}", f.count, f.example);
+        }
+
+        println!("\n-- 3. groups with more slots than candidates: {}", short_groups.len());
+        for ((key, count, names, random_capacity), f) in &short_groups {
+            println!("  {key}: {count} slots, {names} distinct names (planner), {random_capacity} random-path candidates; {} layouts e.g. {}", f.count, f.example);
+        }
+        println!("  layouts affected: {} of {} (random path deals RoomData::dummy(), a stone placeholder, for the extra slots; the planner skips the layout)", short_layouts.len(), layouts.len());
+
+        assert!(empty_rooms.is_empty() && door_failures.is_empty() && wall_doors.is_empty() && hole_failures.is_empty(), "irregular rooms found, see above");
+        let fillable: HashSet<&str> = fillable_layouts(&layouts, &storage).into_iter().collect();
+        for layout in &short_layouts {
+            assert!(!fillable.contains(layout.trim()), "random runs can still pick {layout}");
+        }
     }
 }

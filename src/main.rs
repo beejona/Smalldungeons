@@ -512,6 +512,7 @@ async fn main() -> Result<()> {
     let dungeon_strings = include_str!("dungeon_storage/dungeons.txt")
         .split("\n")
         .collect::<Vec<&str>>();
+    let dungeon_strings = crate::dungeon::generation::fillable_layouts(&dungeon_strings, &room_data_storage);
 
     // Practice mode is a separate launch mode (`cargo run -- practice`, or the more
     // flag-shaped `--practice` - both accepted), not an in-game toggle: no dungeon layout is
