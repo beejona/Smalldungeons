@@ -914,6 +914,8 @@ async fn main() -> Result<()> {
         for player in server.world.players.values_mut() {
             player.ticks_existed += 1;
 
+            crate::server::items::dungeonbreaker::tick_player(player);
+
             // Trickle in any chunks still queued from a `sync_player_view` burst (join, or a
             // dungeon resync) - see `Player::pending_chunk_sync`'s doc comment for why this
             // isn't just sent all at once.

@@ -166,6 +166,9 @@ impl ProcessPacket for PlayerDigging {
                 // replace check with if vanilla toughness would match
                 if let Some(ItemSlot::Filled(item, _)) = player.inventory.get_hotbar_slot(player.held_slot as usize) {
                     match item {
+                        Item::Dungeonbreaker => {
+                            crate::server::items::dungeonbreaker::on_hit(player, self.position);
+                        }
                         Item::DiamondPickaxe | Item::GoldenAxe => {
                             // Limit the mutable borrow of world to this scope
                             {
