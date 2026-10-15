@@ -246,6 +246,7 @@ impl Server {
                 player.inventory.set_slot(ItemSlot::Filled(Item::BonzoStaff, 1), 14);
                 player.inventory.set_slot(ItemSlot::Filled(Item::JerryChineGun, 1), 15);
                 player.inventory.set_slot(ItemSlot::Filled(Item::VanillaChest, 64), 16);
+                player.inventory.set_slot(ItemSlot::Filled(Item::Dungeonbreaker, 1), 17);
                 // Boots armor slot (5=helmet, 6=chestplate, 7=leggings, 8=boots) - was previously
                 // only given via the `/depthstrider` testing command; now on by default so water
                 // in the dungeon doesn't slow players down without them having to ask for it.

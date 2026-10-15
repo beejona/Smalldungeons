@@ -10,3 +10,5 @@
 3. For newer clients (26.1.x to 26.3), also run `proxy/run-proxy.sh` (needs Java 21+). It downloads ViaProxy and listens on `localhost:25565`; join that. `BIND=0.0.0.0:25565` lets other machines join.
 
 `python3 tools/smoke_26.py` logs a bare 26.1 client in through the proxy and checks it reaches play and gets chunks.
+
+`python3 tools/breaker_test_18.py` checks the Dungeonbreaker against a running server: a break, the charge count in the lore, the block coming back after ~11 s, and the 21st hit in a burst being refused.

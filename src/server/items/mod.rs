@@ -16,6 +16,7 @@ mod spirit_sceptre;
 pub mod bonzo_projectile;
 pub mod jerry_projectile;
 pub mod terminator;
+pub mod dungeonbreaker;
 
 
 
@@ -26,6 +27,7 @@ pub enum Item {
     MagicalMap,
     AspectOfTheVoid,
     DiamondPickaxe,
+    Dungeonbreaker,
     SpiritSceptre,
     EnderPearl,
     Hyperion,
@@ -277,6 +279,9 @@ impl Item {
                     ]),
                 ])),
             },
+            // Charges change with use, so this is the full one; `dungeonbreaker` sends the live
+            // lore. Returned as is: it isn't unbreakable on Hypixel.
+            Item::Dungeonbreaker => return dungeonbreaker::item_stack(dungeonbreaker::MAX_CHARGES),
             Item::DiamondPickaxe => ItemStack {
                 item: 278,
                 stack_size: 1,

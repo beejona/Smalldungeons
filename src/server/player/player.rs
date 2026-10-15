@@ -122,6 +122,9 @@ pub struct Player {
     // Redstone key tracking (stored on player but not in inventory)
     pub has_redstone_key: bool,
 
+    /// Dungeonbreaker charges and recent breaks.
+    pub dungeonbreaker: crate::server::items::dungeonbreaker::BreakerState,
+
     // Wither key tracking (stored on player but not in inventory) - consumed on opening a Wither Door
     pub has_wither_key: bool,
 
@@ -328,6 +331,7 @@ impl Player {
             
             // Redstone key tracking
             has_redstone_key: false,
+            dungeonbreaker: Default::default(),
             has_wither_key: false,
             has_blood_key: false,
             
@@ -778,7 +782,10 @@ impl Player {
         let mut inv_items = Vec::new();
         
         for item in &self.inventory.items {
-            inv_items.push(item.get_item_stack())
+            inv_items.push(match item {
+                ItemSlot::Filled(crate::server::items::Item::Dungeonbreaker, _) => Some(crate::server::items::dungeonbreaker::item_stack(self.dungeonbreaker.charges)),
+                _ => item.get_item_stack(),
+            })
         }
         
         if let Some(items) = self.current_ui.get_container_contents(self.server_mut(), &self.client_id)  {

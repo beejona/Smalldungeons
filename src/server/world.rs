@@ -88,6 +88,8 @@ pub struct World {
 
     pub chunk_grid: ChunkGrid,
     pub interactable_blocks: HashMap<BlockPos, BlockInteractAction>,
+    /// Blocks Dungeonbreakers broke, waiting to come back (see `items::dungeonbreaker`).
+    pub dungeonbreaker_broken: Vec<crate::server::items::dungeonbreaker::BrokenBlock>,
 
     pub player_info: PlayerList, // might need to be per player, not sure.
 
@@ -191,6 +193,7 @@ impl World {
 
             chunk_grid: ChunkGrid::new(256, 128, 128),
             interactable_blocks: HashMap::new(),
+            dungeonbreaker_broken: Vec::new(),
 
             player_info: PlayerList::new(),
 
@@ -410,6 +413,8 @@ impl World {
             }
             entity.current_chunk = new_chunk;
         }
+
+                crate::server::items::dungeonbreaker::tick_world(self);
 
                 // Process scheduled tactical insertions
         tactical_insertion::process(self)?;
