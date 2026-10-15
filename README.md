@@ -15,7 +15,19 @@ It installs everything into `%LOCALAPPDATA%\Rustclear`, adds a **Rustclear** sho
 
 If the repo has a published release with `Rustclear-windows.zip`, the installer downloads that and needs nothing else. Otherwise it builds from source and installs Git, Rust and the C++ build tools with winget if they're missing (a one-time download of a few GB, and the first build takes several minutes). Java 21 and ViaProxy are fetched on first start if needed.
 
-To make the prebuilt zip, run the **Windows bundle** workflow from the Actions tab; ticking "draft_release" attaches it to a draft release, which stays private until it's published.
+## Quick install (macOS and Linux)
+
+Open Terminal and paste:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/beejona/Smalldungeons/main/install.sh | bash
+```
+
+On a Mac it installs into `~/Library/Application Support/Rustclear`, puts a **Rustclear.command** on the Desktop and in `~/Applications` (double-click it to start), and starts it. Join the same addresses as above. Works on Apple Silicon and Intel. If the repo has a published release with `Rustclear-macos.tar.gz` it downloads that; otherwise it installs the Xcode command line tools (click "Install" when asked) and Rust, then builds from source. On Linux it always builds from source into `~/.local/share/rustclear` and needs `git` and a C compiler already installed. Java 21 and ViaProxy are fetched on first start if needed.
+
+## Prebuilt downloads
+
+Run the **Release bundles** workflow from the Actions tab to build `Rustclear-windows.zip` and `Rustclear-macos.tar.gz`. Ticking "draft_release" attaches them to a draft release, which stays private until it's published; once published, both installers use it instead of building.
 
 ## Running it
 

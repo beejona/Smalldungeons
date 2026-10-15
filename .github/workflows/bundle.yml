@@ -1,0 +1,134 @@
+name: Release bundles
+
+# Builds the prebuilt downloads the installers use, so players need no compilers:
+#   Rustclear-windows.zip    RustClear.exe + launcher (install.ps1)
+#   Rustclear-macos.tar.gz   universal (Apple Silicon + Intel) RustClear + launcher (install.sh)
+# Room data is compiled into the binary. The installers only use the latest *published* release.
+# Run it by hand from the Actions tab. With "draft_release" it attaches both to a draft release,
+# which stays private until someone publishes it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft_release:
+        description: Attach the bundles to a draft release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get room data
+        uses: actions/checkout@v4
+        with:
+          repository: Moo-ody/Evensmallerdungeonsdata
+          ref: main
+          path: ClearData
+
+      - name: Copy room data into the project
+        shell: bash
+        run: |
+          rm -rf src/room_data
+          cp -r ClearData/room_data src/room_data
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-bundle-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: windows-bundle-
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Assemble zip
+        shell: bash
+        run: |
+          mkdir dist
+          cp target/release/RustClear.exe launcher/start.ps1 "launcher/Start Rustclear.bat" dist/
+          cd dist && 7z a ../Rustclear-windows.zip ./*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rustclear-windows
+          path: Rustclear-windows.zip
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get room data
+        uses: actions/checkout@v4
+        with:
+          repository: Moo-ody/Evensmallerdungeonsdata
+          ref: main
+          path: ClearData
+
+      - name: Copy room data into the project
+        run: |
+          rm -rf src/room_data
+          cp -r ClearData/room_data src/room_data
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-bundle-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: macos-bundle-
+
+      - name: Build for Apple Silicon and Intel
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+
+      - name: Assemble tarball
+        run: |
+          mkdir dist
+          lipo -create -output dist/RustClear \
+            target/aarch64-apple-darwin/release/RustClear \
+            target/x86_64-apple-darwin/release/RustClear
+          cp launcher/start.sh dist/
+          chmod +x dist/RustClear dist/start.sh
+          tar -czf Rustclear-macos.tar.gz -C dist .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rustclear-macos
+          path: Rustclear-macos.tar.gz
+
+  release:
+    if: ${{ inputs.draft_release }}
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Read version
+        id: version
+        run: echo "version=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f2)" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release v${{ steps.version.outputs.version }}
+          draft: true
+          files: |
+            dist/Rustclear-windows.zip
+            dist/Rustclear-macos.tar.gz
