@@ -1,0 +1,9 @@
+{
+  "runs": [
+    {"players": ["alice"], "ticks": 3400, "score": 302, "secrets_found": 48, "total_secrets": 50, "layout": "", "seed": 1, "finished_at": 1760000000},
+    {"players": ["bob"], "ticks": 3100, "score": 305, "secrets_found": 50, "total_secrets": 50, "layout": "", "seed": 2, "finished_at": 1760000100},
+    {"players": ["alice"], "ticks": 2980, "score": 300, "secrets_found": 46, "total_secrets": 49, "layout": "", "seed": 3, "finished_at": 1760000200},
+    {"players": ["lbtest"], "ticks": 3600, "score": 301, "secrets_found": 50, "total_secrets": 52, "layout": "", "seed": 4, "finished_at": 1760000300},
+    {"players": ["alice", "bob"], "ticks": 2500, "score": 310, "secrets_found": 55, "total_secrets": 55, "layout": "", "seed": 5, "finished_at": 1760000400}
+  ]
+}

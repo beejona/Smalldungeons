@@ -135,6 +135,18 @@ pub struct Dungeon {
     /// count for the leaderboard (`counts_for_leaderboard`).
     pub settings: crate::dungeon::settings::DungeonSettings,
 
+    /// The layout string and RNG seed this dungeon was built from (empty/0 when unknown), kept
+    /// with leaderboard runs so they can be replayed.
+    pub layout: String,
+    pub seed: u64,
+    /// Built from a layout someone chose (a command-line layout), which doesn't count for the
+    /// leaderboard.
+    pub custom_layout: bool,
+    /// Set when something during the run (a debug command) means it can't count, with why.
+    pub run_disqualified: Option<String>,
+    /// Whether this run's finish has already been handled by `server::leaderboard`.
+    pub run_recorded: bool,
+
     // Boss room data
     // pub boss_room_corner: BlockPos,
     // pub boss_room_width: i32,
@@ -237,6 +249,11 @@ impl Dungeon {
             practice_route_prefix: None,
             practice_last_found_secrets: 0,
             practice_route_flash_ticks: 0,
+            layout: String::new(),
+            seed: 0,
+            custom_layout: false,
+            run_disqualified: None,
+            run_recorded: false,
             practice_timer_text: None,
             score: DungeonScoreState::default(),
             locked_chests: HashMap::new(),

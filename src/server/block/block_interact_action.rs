@@ -192,6 +192,7 @@ impl BlockInteractAction {
                         let _ = other_player.send_message("§cThe §c§lBLOOD DOOR §chas been opened!");
                         let _ = other_player.send_message("§5A shiver runs down your spine...");
                     }
+                    crate::server::leaderboard::on_blood_open(player.server_mut());
                 }
             }
 

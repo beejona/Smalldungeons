@@ -1117,6 +1117,10 @@ impl ProcessPacket for CustomPayload {
             crate::server::rustclear_mod::handle_settings(player, &self.payload);
             return;
         }
+        if self.channel == crate::server::leaderboard::LEADERBOARD_CHANNEL {
+            crate::server::leaderboard::handle_request(player, &self.payload);
+            return;
+        }
 
         // Log the received plugin message but don't process it
         // Never disconnect on plugin messages - vanilla, Forge, Essential, Skytils, etc. all send them
