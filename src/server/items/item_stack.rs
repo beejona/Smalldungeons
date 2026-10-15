@@ -23,12 +23,28 @@ impl PacketSerializable for Option<ItemStack> {
 
             match &item_stack.tag_compound {
                 None => 0u8.write(buf),
-                Some(nbt) => buf.extend(serialize_nbt(nbt)),
+                Some(nbt) => buf.extend(serialize_nbt(&with_root_extra_attributes(nbt))),
             }
         } else {
             (-1i16).write(buf)
         }
     }
+}
+
+/// Modern (1.20.5+) clients connect through ViaProxy, which puts the whole 1.8 tag into the
+/// item's `custom_data`, so `id` ends up at `custom_data.ExtraAttributes.id`. Modern Hypixel has
+/// those fields at the root of `custom_data`, and that's where modern Skyblock mods read the item
+/// id. Copying `ExtraAttributes`' entries to the root of the tag covers both; 1.8 clients ignore
+/// unknown root tags. Existing root keys are never overwritten.
+fn with_root_extra_attributes(nbt: &NBT) -> std::borrow::Cow<'_, NBT> {
+    let Some(NBTNode::Compound(extra)) = nbt.nodes.get("ExtraAttributes") else {
+        return std::borrow::Cow::Borrowed(nbt);
+    };
+    let mut out = nbt.clone();
+    for (key, value) in extra {
+        out.nodes.entry(key.clone()).or_insert_with(|| value.clone());
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 impl PacketDeserializable for Option<ItemStack> {
