@@ -59,7 +59,8 @@ jobs:
         run: cargo build --release --verbose
 
       - name: Run tests
-        run: cargo test --verbose
+        # In parallel the tests use more memory than the runner has, and it gets shut down.
+        run: cargo test --verbose -- --test-threads=1
 
       - name: Prepare dist + OS-named binary
         shell: bash
