@@ -25,7 +25,8 @@ fn write_json(player: &mut Player, channel: &str, json: &str) {
 /// Tells the client which channel we listen on and sends the catalog for the settings screen.
 pub fn send_hello(server: &Server, player: &mut Player) {
     // 1.8's REGISTER lists channels separated by NUL; ViaProxy turns it into minecraft:register.
-    player.write_packet(&CustomPayload { channel: "REGISTER".into(), data: SETTINGS_CHANNEL.as_bytes() });
+    let channels = format!("{SETTINGS_CHANNEL}\0{}", crate::server::leaderboard::LEADERBOARD_CHANNEL);
+    player.write_packet(&CustomPayload { channel: "REGISTER".into(), data: channels.as_bytes() });
 
     let catalog = Catalog::build(&server.room_data_storage, server.require_mod, &server.dungeon_settings, &server.secret_histogram);
     match serde_json::to_string(&catalog) {

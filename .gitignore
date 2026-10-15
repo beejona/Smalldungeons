@@ -5,3 +5,5 @@ src/room_data
 launcher/proxy/
 launcher/java/
 launcher/*.log
+leaderboard.json
+leaderboard.json.tmp

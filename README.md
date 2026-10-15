@@ -48,3 +48,7 @@ The Windows installer sets up the server and proxy but not the mod, so players a
 The mod chooses settings for the next dungeon: rooms that must spawn, the puzzles that may spawn, and a range for the total secrets. Leaving all three on random gives a normal run, and only those count for the leaderboard (`Dungeon::counts_for_leaderboard`). `src/dungeon/settings.rs` has the message formats and `src/dungeon/generation.rs` the planner that picks a recorded layout and its rooms to meet the settings, or explains why none can.
 
 `python3 tools/settings_test_18.py` checks the handshake against a running server: the kick without the mod, a custom dungeon, refused settings, and a ranked random dungeon.
+
+## Leaderboard
+
+A run counts when the blood door opens with S+ score (300 or more) on a fully random dungeon: no custom settings, no layout chosen on the command line, not practice mode, and no score-changing `/dscore`. The time is the server's own tick count from the dungeon start. Runs are kept in `leaderboard.json` in the server's working directory and ranked per party size, one entry per party. The mod asks for a board on the `rustclear:board` channel (see `src/server/leaderboard.rs` for the messages); `python3 tools/leaderboard_test_18.py` checks that protocol against a server started next to a copy of `tools/leaderboard_fixture.json` named `leaderboard.json`.

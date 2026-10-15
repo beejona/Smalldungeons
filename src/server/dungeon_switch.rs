@@ -177,18 +177,23 @@ pub fn build_dungeon(server: &Server) -> anyhow::Result<Dungeon> {
             .copied()
             .unwrap_or("080809010400100211121300101415161304171418161300191403161304191905160600919999113099910991099909090099999919990929999999099999999009");
         println!("Dungeon String: {dungeon_str}\nRng Seed: {rng_seed}");
-        Dungeon::from_str(dungeon_str, &server.room_data_storage)?
+        let mut dungeon = Dungeon::from_str(dungeon_str, &server.room_data_storage)?;
+        dungeon.layout = dungeon_str.to_string();
+        dungeon
     } else {
         let plan = plan_dungeon(&dungeon_strings, &server.room_data_storage, &settings, &mut seeded_rng())
             .map_err(|failure| anyhow::anyhow!(failure.message(&settings)))?;
         println!("Dungeon String: {}\nRng Seed: {rng_seed}\nSettings: {} ({} secrets)", plan.layout, settings.describe(), plan.total_secrets);
-        Dungeon::from_plan(&plan, &server.room_data_storage)?
+        let mut dungeon = Dungeon::from_plan(&plan, &server.room_data_storage)?;
+        dungeon.layout = plan.layout.clone();
+        dungeon
     };
     if !settings.is_fully_random() {
         let names: Vec<&str> = dungeon.rooms.iter().map(|r| r.room_data.name.as_str()).collect();
         println!("Rooms: {}", names.join(", "));
     }
     dungeon.settings = settings;
+    dungeon.seed = rng_seed;
     Ok(dungeon)
 }
 

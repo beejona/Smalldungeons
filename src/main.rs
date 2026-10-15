@@ -546,13 +546,18 @@ async fn main() -> Result<()> {
         println!("Rng Seed: {}", rng_seed);
         SeededRng::set_seed(rng_seed);
 
-        Dungeon::from_str(dungeon_str, &room_data_storage)?
+        let mut dungeon = Dungeon::from_str(dungeon_str, &room_data_storage)?;
+        dungeon.layout = dungeon_str.to_string();
+        dungeon.seed = rng_seed;
+        dungeon.custom_layout = args.len() > 1;
+        dungeon
     };
 
     let mut server = Server::initialize_with_dungeon(network_tx, dungeon, room_data_storage, door_type_blocks);
     server.world.server = &mut server;
     server.dungeon.server = &mut server;
     server.practice_mode = practice_mode;
+    server.leaderboard = crate::server::leaderboard::Leaderboard::load()?;
     if practice_mode {
         // No entrance room exists yet to set a real spawn point from - park players somewhere
         // safe above the (currently empty) dungeon grid until the first `/practice` runs.

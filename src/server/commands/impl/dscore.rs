@@ -24,10 +24,16 @@ impl CommandMetadata for DScore {
 
     fn run(world: &mut World, player: &mut Player, args: &[&str]) -> anyhow::Result<Outcome> {
         match args[0] {
-            "death" => world.server_mut().dungeon.record_death(),
-            "puzzlefail" => world.server_mut().dungeon.record_puzzle_failed(),
-            "mimic" => world.server_mut().dungeon.record_mimic_killed(),
-            "paul" => world.server_mut().dungeon.set_paul_ezpz(true),
+            "death" | "puzzlefail" | "mimic" | "paul" => {
+                // A changed score can't count for the leaderboard.
+                world.server_mut().dungeon.run_disqualified.get_or_insert_with(|| "/dscore was used".to_string());
+                match args[0] {
+                    "death" => world.server_mut().dungeon.record_death(),
+                    "puzzlefail" => world.server_mut().dungeon.record_puzzle_failed(),
+                    "mimic" => world.server_mut().dungeon.record_mimic_killed(),
+                    _ => world.server_mut().dungeon.set_paul_ezpz(true),
+                }
+            }
             _ => {}
         }
 
