@@ -8,3 +8,4 @@ pub mod map;
 pub mod practice;
 pub mod p3;
 pub mod score;
+pub mod settings;

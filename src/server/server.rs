@@ -47,6 +47,9 @@ pub struct Server {
     /// `/practice` and `/rs` (`dungeon::practice`) are allowed to run at all - practice mode is
     /// a distinct server launch mode, not an in-game toggle available on a normal dungeon run.
     pub practice_mode: bool,
+
+    /// Which puzzles and secret range the next dungeon built must have (`dungeon::settings`).
+    pub dungeon_settings: crate::dungeon::settings::DungeonSettings,
 }
 impl Server {
     pub fn initialize_with_dungeon(
@@ -63,6 +66,7 @@ impl Server {
             room_data_storage,
             door_type_blocks,
             practice_mode: false,
+            dungeon_settings: Default::default(),
         }
     }
 

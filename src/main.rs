@@ -481,7 +481,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    // The key here is just an opaque per-entry id - `get_random_data_with_type` (the only real
+    // The key here is just an opaque per-entry id - `settings::choose_room` (the only real
     // consumer during dungeon generation) filters by `room_type`/`shape` and picks randomly, never
     // by this key, so it doesn't need to mean anything. It used to be parsed from the file name's
     // room-id prefix instead of a fresh index - that silently dropped any room with two physical
@@ -565,9 +565,7 @@ async fn main() -> Result<()> {
         .into_iter(),
     );
 
-    let dungeon_strings = include_str!("dungeon_storage/dungeons.txt")
-        .split("\n")
-        .collect::<Vec<&str>>();
+    let dungeon_settings = crate::dungeon::settings::DungeonSettings::load()?;
 
     // Practice mode is a separate launch mode (`cargo run -- practice`, or the more
     // flag-shaped `--practice` - both accepted), not an in-game toggle: no dungeon layout is
@@ -582,32 +580,34 @@ async fn main() -> Result<()> {
         println!("Launching in PRACTICE mode - use /practice <room> <door> in-game to load a room.");
         Dungeon::from_layout(Vec::new(), Vec::new())?
     } else {
-        // Check if a custom dungeon str has been given via cli args
-
-        // let dungeon_str = "080809010400100211121300101415161304171418161300191403161304191905160600919999113099910991099909090099999919990929999999099999999009";
-
-        let dungeon_str = match args.len() {
-            0..=1 => {
-                let mut rng = rand::rng();
-                dungeon_strings.choose(&mut rng).unwrap_or(&"080809010400100211121300101415161304171418161300191403161304191905160600919999113099910991099909090099999919990929999999099999999009")
+        // `cargo run -- <layout> [seed]` rebuilds a specific dungeon (both are printed for every
+        // dungeon built); otherwise a random layout that fits the dungeon settings.
+        match args.get(1) {
+            Some(layout) => {
+                let rng_seed: u64 = match args.get(2) {
+                    Some(seed) => seed.parse()?,
+                    None => rand::random(),
+                };
+                println!("Dungeon String: {}", layout);
+                println!("Rng Seed: {}", rng_seed);
+                SeededRng::set_seed(rng_seed);
+                Dungeon::from_str_with(layout, &room_data_storage, &dungeon_settings)?
+                    .ok_or_else(|| anyhow::anyhow!("this layout can't meet the dungeon settings ({})", crate::dungeon::settings::SETTINGS_FILE))?
             }
-            _ => args.get(1).map(|s| s.as_str()).unwrap_or("080809010400100211121300101415161304171418161300191403161304191905160600919999113099910991099909090099999919990929999999099999999009"),
-        };
-        println!("Dungeon String: {}", dungeon_str);
-
-        let rng_seed: u64 = rand::random(); // using a second seed for rng enables the same layout to have randomized rooms. Maybe should be included in the dungeon seed string?
-        // let rng_seed: u64 = 12946977352813673410;
-
-        println!("Rng Seed: {}", rng_seed);
-        SeededRng::set_seed(rng_seed);
-
-        Dungeon::from_str(dungeon_str, &room_data_storage)?
+            None => {
+                let picked = crate::dungeon::settings::pick_dungeon(&room_data_storage, &dungeon_settings)?;
+                println!("Dungeon String: {}", picked.layout);
+                println!("Rng Seed: {}", picked.seed);
+                picked.dungeon
+            }
+        }
     };
 
     let mut server = Server::initialize_with_dungeon(network_tx, dungeon, room_data_storage, door_type_blocks);
     server.world.server = &mut server;
     server.dungeon.server = &mut server;
     server.practice_mode = practice_mode;
+    server.dungeon_settings = dungeon_settings;
     if practice_mode {
         // No entrance room exists yet to set a real spawn point from - park players somewhere
         // safe above the (currently empty) dungeon grid until the first `/practice` runs.

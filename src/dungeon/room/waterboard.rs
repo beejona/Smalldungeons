@@ -430,7 +430,7 @@ fn answer_key_pattern_for_room(room: &Room) -> &'static str {
 /// The 3 other real full room captures the user WorldEdited + exported directly (pattern 2's own
 /// capture is the original room itself, see `MATERIAL_BLOCKS_ORIGINAL`'s doc comment) - embedded
 /// here (not left in `src/room_data/rooms/`) specifically so they're NOT independently visible to
-/// `get_random_data_with_type`'s own real dungeon-generation room picker. Per explicit correction:
+/// `settings::choose_room`'s own real dungeon-generation room picker. Per explicit correction:
 /// Water Board must stay exactly ONE `room_data_storage` entry - the real maze pattern is purely
 /// INTERNAL variety, picked by `pick_pattern` below, not 4 separate simultaneously-eligible
 /// "puzzle rooms" (that would make real generation pick Water Board as a puzzle TYPE more often

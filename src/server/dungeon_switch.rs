@@ -157,15 +157,12 @@ pub(crate) fn resync_chunk_range(world: &mut World, player: &mut Player, min_x: 
 /// call for the Entrance room), not wherever they happened to be standing in the old one.
 pub fn switch_dungeon(server: &mut Server) -> anyhow::Result<()> {
     // --- 1. Pick the new layout up front (pure data, doesn't touch world/dungeon state yet) ---
-    let dungeon_strings = include_str!("../dungeon_storage/dungeons.txt")
-        .split("\n")
-        .collect::<Vec<&str>>();
-    let mut picker_rng = rand::rng();
-    let dungeon_str = dungeon_strings.choose(&mut picker_rng)
-        .copied()
-        .unwrap_or("080809010400100211121300101415161304171418161300191403161304191905160600919999113099910991099909090099999919990929999999099999999009");
-
-    let mut new_dungeon = Dungeon::from_str(dungeon_str, &server.room_data_storage)?;
+    // Within the dungeon settings; this also seeds the RNG, so the printed layout and seed
+    // rebuild the same dungeon (rooms, then mobs below).
+    let picked = crate::dungeon::settings::pick_dungeon(&server.room_data_storage, &server.dungeon_settings)?;
+    println!("Dungeon String: {}", picked.layout);
+    println!("Rng Seed: {}", picked.seed);
+    let mut new_dungeon = picked.dungeon;
     new_dungeon.server = server as *mut Server;
 
     // --- 2. Tear down every trace of the old run ---
@@ -214,10 +211,6 @@ pub fn switch_dungeon(server: &mut Server) -> anyhow::Result<()> {
     // sets), doors, room_grid, DungeonState, the map, score, locked chests, lever->chest
     // mapping, mushroom-up destinations. None of it is reachable from the new `Dungeon`.
     server.dungeon = new_dungeon;
-
-    // Fresh randomness for the new run's room/mob-layout selection, not a continuation of the
-    // old run's RNG stream.
-    SeededRng::set_seed(rand::random());
 
     // --- 3. Build the new dungeon's world state (blocks, Mort, locked chests, doors, ...) ---
     crate::populate_dungeon_world(server)?;

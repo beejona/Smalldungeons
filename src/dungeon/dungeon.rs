@@ -2,7 +2,8 @@ use crate::dungeon::door::{Door, DoorType};
 use crate::dungeon::dungeon_state::DungeonState;
 use crate::dungeon::map::DungeonMap;
 use crate::dungeon::room::room::{Room, RoomNeighbour, RoomSegment};
-use crate::dungeon::room::room_data::{get_random_data_with_type, RoomData, RoomShape, RoomType};
+use crate::dungeon::room::room_data::{RoomData, RoomShape, RoomType};
+use crate::dungeon::settings::{choose_room, repair_secrets, DungeonSettings, Pick};
 use crate::dungeon::score::DungeonScoreState;
 use crate::net::protocol::play::clientbound::{Maps, MapIcon};
 use crate::server::block::block_interact_action::BlockInteractAction;
@@ -246,10 +247,19 @@ impl Dungeon {
 
 
     pub fn from_str(layout_str: &str, room_data_storage: &DeterministicHashMap<usize, RoomData>) -> anyhow::Result<Dungeon> {
-        let mut rooms: Vec<Room> = Vec::new();
+        Self::from_str_with(layout_str, room_data_storage, &DungeonSettings::default())?
+            .ok_or_else(|| anyhow::anyhow!("no room data fits this layout"))
+    }
+
+    /// Builds the dungeon for a layout string, picking each room slot's contents within
+    /// `settings` (allowed puzzles, secret range). `None` when this layout can't meet them.
+    pub fn from_str_with(layout_str: &str, room_data_storage: &DeterministicHashMap<usize, RoomData>, settings: &DungeonSettings) -> anyhow::Result<Option<Dungeon>> {
         let mut doors: Vec<Door> = Vec::new();
 
         let mut room_id_map: DeterministicHashMap<usize, Vec<RoomSegment>> = DeterministicHashMap::default();
+        // Every room slot, in the order rooms are built, with the room data picked for it.
+        let mut slots: Vec<Vec<RoomSegment>> = Vec::new();
+        let mut picks: Vec<Pick> = Vec::new();
 
         for (index, (x, z)) in DOOR_POSITIONS.into_iter().enumerate() {
             let type_str = layout_str.get(index + 72..index+73).unwrap();
@@ -318,21 +328,13 @@ impl Dungeon {
                     _ => RoomShape::OneByOneEnd,
                 };
 
-                let mut room_data = get_random_data_with_type(
-                    room_type,
-                    shape,
-                    room_data_storage,
-                    &rooms
-                );
-
-                room_data.room_type = room_type;
-
-                rooms.push(Room::new(
-                    vec![RoomSegment { x, z, neighbours: [const { None }; 4] }],
-                    &doors,
-                    room_data
-                ));
-
+                let key = choose_room(room_type, shape.clone(), room_data_storage, &picks, settings);
+                // Not enough allowed puzzles for this layout's puzzle rooms.
+                if key.is_none() && room_type == RoomType::Puzzle && settings.allowed_puzzles.is_some() {
+                    return Ok(None);
+                }
+                picks.push(Pick { room_type, shape, key });
+                slots.push(vec![RoomSegment { x, z, neighbours: [const { None }; 4] }]);
                 continue
             }
 
@@ -341,24 +343,25 @@ impl Dungeon {
             entry.push(RoomSegment { x, z, neighbours: [const { None }; 4] });
         }
 
-        // Make the normal rooms
-        rooms.reserve(room_id_map.len());
         for (_, segments) in room_id_map {
             let shape = RoomShape::from_segments(&segments, &doors);
-
-            rooms.push(Room::new(
-                segments,
-                &doors,
-                get_random_data_with_type(
-                    RoomType::Normal,
-                    shape,
-                    room_data_storage,
-                    &rooms
-                )
-            ));
+            let key = choose_room(RoomType::Normal, shape.clone(), room_data_storage, &picks, settings);
+            picks.push(Pick { room_type: RoomType::Normal, shape, key });
+            slots.push(segments);
         }
 
-        Self::from_layout(doors, rooms)
+        if !repair_secrets(&mut picks, room_data_storage, settings) {
+            return Ok(None);
+        }
+
+        let mut rooms: Vec<Room> = Vec::with_capacity(slots.len());
+        for (segments, pick) in slots.into_iter().zip(picks) {
+            let mut room_data = pick.key.map(|key| room_data_storage[&key].clone()).unwrap_or_else(RoomData::dummy);
+            room_data.room_type = pick.room_type;
+            rooms.push(Room::new(segments, &doors, room_data));
+        }
+
+        Self::from_layout(doors, rooms).map(Some)
     }
 
     // pub fn with_rooms_and_doors(rooms: Vec<Room>, doors: Vec<Door>) -> anyhow::Result<Dungeon> {
