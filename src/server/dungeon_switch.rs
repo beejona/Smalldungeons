@@ -164,6 +164,7 @@ pub fn build_dungeon(server: &Server) -> anyhow::Result<Dungeon> {
         .split("\n")
         .filter(|line| !line.trim().is_empty())
         .collect::<Vec<&str>>();
+    let dungeon_strings = crate::dungeon::generation::fillable_layouts(&dungeon_strings, &server.room_data_storage);
 
     // Fresh randomness for the new run's layout, rooms and mobs, not a continuation of the old
     // run's RNG stream. Printed with the layout so a run can be replayed.
