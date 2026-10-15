@@ -194,6 +194,8 @@ pub fn switch_dungeon(server: &mut Server) -> anyhow::Result<()> {
     // fixed world BlockPos that the new dungeon will reuse, so a stale entry here could
     // misfire against a completely unrelated block in the new layout.
     server.world.interactable_blocks.clear();
+    // The old dungeon's broken blocks must not come back into the new one.
+    server.world.dungeonbreaker_broken.clear();
 
     // Dead code today (see `RedstoneSystem`'s own doc comments) but keyed by BlockPos the same
     // way - reset for the same reason, in case it's ever wired up.
@@ -265,6 +267,7 @@ pub fn switch_dungeon(server: &mut Server) -> anyhow::Result<()> {
         player.current_room_index = None;
         player.dungeon_stats = DungeonPlayerStats::default();
         player.has_redstone_key = false;
+        player.dungeonbreaker = Default::default();
         player.has_wither_key = false;
         player.has_blood_key = false;
         player.dungeon_entry_tick = None;
