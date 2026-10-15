@@ -11,3 +11,4 @@ pub mod commands;
 pub mod lava_boost;
 pub mod redstone;
 pub mod dungeon_switch;
+pub mod rustclear_mod;

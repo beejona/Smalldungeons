@@ -7,4 +7,5 @@ pub mod dungeon;
 pub mod map;
 pub mod practice;
 pub mod p3;
-pub mod score;
+pub mod score;pub mod generation;
+pub mod settings;

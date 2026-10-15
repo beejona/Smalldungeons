@@ -134,6 +134,13 @@ pub struct Player {
     // Track when player first entered the dungeon (for simplified scoreboard)
     pub dungeon_entry_tick: Option<u64>,
 
+    /// The Rustclear mod's version, once the player's client has answered the hello on
+    /// `rustclear:settings`. `None` until then; the server kicks players who never answer when
+    /// the mod is required (`server::rustclear_mod`).
+    pub rustclear_mod: Option<String>,
+    /// `World::tick_count` when the player joined, for the mod handshake timeout.
+    pub joined_tick: u64,
+
     /// Whether the "Undersized party!" head in the CNC menu has already been clicked this menu
     /// session - it's single-use per opening, reset to `false` each time `/cnc` (re)opens the
     /// menu (see `Cnc::run`), not per-player-lifetime.
@@ -337,6 +344,8 @@ impl Player {
             
             // Dungeon entry tracking
             dungeon_entry_tick: None,
+            rustclear_mod: None,
+            joined_tick: 0,
 
             cnc_undersized_used: false,
             practice_last_spawn: None,

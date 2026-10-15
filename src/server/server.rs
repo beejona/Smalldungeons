@@ -47,6 +47,11 @@ pub struct Server {
     /// `/practice` and `/rs` (`dungeon::practice`) are allowed to run at all - practice mode is
     /// a distinct server launch mode, not an in-game toggle available on a normal dungeon run.
     pub practice_mode: bool,
+
+    /// Settings for the next dungeon, last set by a player's Rustclear mod.
+    pub dungeon_settings: crate::dungeon::settings::DungeonSettings,
+    /// Whether players must run the Rustclear mod. On unless `RUSTCLEAR_REQUIRE_MOD=0`.
+    pub require_mod: bool,
 }
 impl Server {
     pub fn initialize_with_dungeon(
@@ -63,6 +68,8 @@ impl Server {
             room_data_storage,
             door_type_blocks,
             practice_mode: false,
+            dungeon_settings: Default::default(),
+            require_mod: !matches!(std::env::var("RUSTCLEAR_REQUIRE_MOD").as_deref(), Ok("0") | Ok("false") | Ok("no")),
         }
     }
 
@@ -318,6 +325,9 @@ impl Server {
                      data: &location_data,
                  });
                 
+                player.joined_tick = self.world.tick_count;
+                crate::server::rustclear_mod::send_hello(self, &mut player);
+
                 player.flush_packets();
 
                 self.world.players.insert(client_id, player);
