@@ -1112,7 +1112,12 @@ impl ProcessPacket for ClientStatus {
 }
 
 impl ProcessPacket for CustomPayload {
-    fn process_with_player(&self, _player: &mut Player) {
+    fn process_with_player(&self, player: &mut Player) {
+        if self.channel == crate::dungeon::settings::SETTINGS_CHANNEL {
+            crate::server::rustclear_mod::handle_settings(player, &self.payload);
+            return;
+        }
+
         // Log the received plugin message but don't process it
         // Never disconnect on plugin messages - vanilla, Forge, Essential, Skytils, etc. all send them
         

@@ -46,7 +46,6 @@ use crate::utils::seeded_rng::{SeededRng, seeded_rng};
 use anyhow::Result;
 use chrono::Local;
 use chrono::format::Pad::Zero;
-use include_dir::include_dir;
 use indoc::formatdoc;
 use rand::seq::IndexedRandom;
 use std::collections::HashMap;
@@ -461,62 +460,7 @@ async fn main() -> Result<()> {
 
     let args: Vec<String> = env::args().collect();
 
-    let rooms_dir = include_dir!("src/room_data/rooms/");
-
-    // Load secrets from bettermapRooms.json
-    let bettermap_rooms_json = include_str!("room_data/rooms/bettermapRooms.json");
-    let bettermap_rooms: serde_json::Value = serde_json::from_str(bettermap_rooms_json).unwrap();
-    let mut secrets_map: std::collections::HashMap<String, u8> = std::collections::HashMap::new();
-    
-    if let Some(rooms_array) = bettermap_rooms.as_array() {
-        for room in rooms_array {
-            if let Some(name) = room.get("name").and_then(|n| n.as_str()) {
-                if let Some(secrets) = room.get("secrets")
-                    .and_then(|s| s.as_number())
-                    .and_then(|n| n.as_u64())
-                    .map(|n| n as u8) {
-                    secrets_map.insert(name.to_string(), secrets);
-                }
-            }
-        }
-    }
-
-    // The key here is just an opaque per-entry id - `get_random_data_with_type` (the only real
-    // consumer during dungeon generation) filters by `room_type`/`shape` and picks randomly, never
-    // by this key, so it doesn't need to mean anything. It used to be parsed from the file name's
-    // room-id prefix instead of a fresh index - that silently dropped any room with two physical
-    // variants sharing the same prefix (confirmed real: both "Blaze" room files, Higher/Lower,
-    // are "10,blaze,...json" - whichever loaded second silently overwrote the first in the map,
-    // so only one of the two ever actually existed at runtime). A sequential index can't collide.
-    let room_data_storage: DeterministicHashMap<usize, RoomData> = rooms_dir
-        .entries()
-        .iter()
-        .filter_map(|file| {
-            let file = file.as_file()?;
-            let file_name = file.path().file_name()?.to_str()?;
-
-            // Skip bettermapRooms.json - it's not a room file
-            if file_name == "bettermapRooms.json" {
-                return None;
-            }
-
-            let contents = file.contents_utf8()?;
-            let mut room_data = RoomData::from_raw_json(contents);
-
-            // Override secrets from bettermapRooms.json if available
-            if let Some(secrets) = secrets_map.get(&room_data.name) {
-                room_data.secrets = *secrets;
-            }
-
-            // Override specific room secrets
-            if room_data.name == "Golden Oasis" {
-                room_data.secrets = 3;
-            }
-
-            Some(room_data)
-        })
-        .enumerate()
-        .collect();
+    let room_data_storage = crate::dungeon::room::room_data::load_room_data_storage();
 
     // Load lever data - using include_str for now since the directory name has spaces
     let _lever_json_data = include_str!("room_data/misc/lever.json");
@@ -730,6 +674,8 @@ async fn main() -> Result<()> {
         while let Ok(message) = main_rx.try_recv() {
             server.process_event(message).unwrap_or_else(|err| eprintln!("Error processing event: {err}"));
         }
+
+        crate::server::rustclear_mod::kick_players_without_mod(&mut server);
 
         server.dungeon.tick()?;
         server.world.tick()?;
